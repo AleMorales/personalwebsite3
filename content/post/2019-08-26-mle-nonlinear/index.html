@@ -1,0 +1,145 @@
+---
+title: "Maximum likelihood estimation from scratch"
+author: Alejandro Morales
+date: '2019-08-26'
+slug: mle-nonlinear
+categories:
+  - R
+  - Numerical methods
+  - Statistics
+tags: []
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2019-08-26T06:38:00+02:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+---
+
+
+
+<div id="maximum-likelihood-estimates-of-a-distribution" class="section level1">
+<h1>Maximum likelihood estimates of a distribution</h1>
+<p>Maximum likelihood estimation (MLE) is a method to estimate the parameters of a random population given a sample. I described what this population means and its relationship to the sample in a previous <a href="https://alemorales.info/post/introduction-sampling-distribution/">post</a>.</p>
+<p>Before we can look into MLE, we first need to understand the difference between probability and probability density for continuous variables. Probability density can be seen as a measure of relative probability, that is, values located in areas with higher probability will get have higher probability density. More precisely, probability is the integral of probability density over a range. For example, the classic “bell-shaped” curve associated to the Normal distribution is a measure of probability density, whereas probability corresponds to the area under the curve for a given range of values:</p>
+<p><img src="/post/04_mle_nonlinear_files/figure-html/unnamed-chunk-2-1.png" width="672" /></p>
+<p>If we assign an statistical model to the random population, any particular value (let’s call it <span class="math inline">\(x_i\)</span>) sampled from the population will have a probability density according to the model (let’s call it <span class="math inline">\(f(x_i)\)</span>). If we then assume that all the values in our sample are statistically independent (i.e. the probability of sampling a particular value does not depend on the rest of values already sampled), then the <em>likelihood</em> of observing the whole sample (let’s call it <span class="math inline">\(L(x)\)</span>) is defined as the product of the probability densities of the individual values (i.e. <span class="math inline">\(L(x) = \prod_{i=1}^{i=n}f(x_i)\)</span> where <span class="math inline">\(n\)</span> is the size of the sample).</p>
+<p>For example, if we assume that the data were sampled from a Normal distribution, the likelihood is defined as:</p>
+<p><span class="math display">\[
+L(x) = \prod_{i=1}^{i=n}\frac{1}{\sqrt{2 \pi \sigma^2}}e^{-\frac{\left(x_i - \mu \right)^2}{2\sigma^2}}
+\]</span></p>
+<p>Note that <span class="math inline">\(L(x)\)</span> does not depend on <span class="math inline">\(x\)</span> only, but also on <span class="math inline">\(\mu\)</span> and <span class="math inline">\(\sigma\)</span>, that is, the parameters in the statistical model describing the random population. The idea behind MLE is to find the values of the parameters in the statistical model that maximize <span class="math inline">\(L(x)\)</span>. In other words, it calculates the random population that is most likely to generate the observed data, while being constrained to a particular type of distribution.</p>
+<p>One complication of the MLE method is that, as probability densities are often smaller than 1, the value of <span class="math inline">\(L(x)\)</span> can become very small as the sample size grows. For example the likelihood of 100 values sampled from a standard Normal distribution is very small:</p>
+<pre class="r"><code>set.seed(2019)
+sample = rnorm(100)
+prod(dnorm(sample))</code></pre>
+<pre><code>## [1] 2.23626e-58</code></pre>
+<p>When the variance of the distribution is small it is also possible to have probability densities higher than one. In this case, the likelihood function will grow to very large values. For example, for a Normal distribution with standard deviation of 0.1 we get:</p>
+<pre class="r"><code>sample_large = rnorm(100, sd = 0.1)
+prod(dnorm(sample_large, sd = 0.1))</code></pre>
+<pre><code>## [1] 2.741535e+38</code></pre>
+<p>The reason why this is a problem is that computers have a limited capacity to store the digits of a number, so they cannot store very large or very small numbers. If you repeat the code above but using sample sizes of say 1000, you will get <code>0</code> or <code>Inf</code> instead of the actual values, because your computer will just give up. Although it is possible to increase the amount of digits to be stored per number, this does not really solve the problem, as it will eventually come back with larger samples. Furthermore, in most cases we will need to use numerical optimization algorithms (see below) which will make the problem even worse. Therefore, we cannot work directly with the likelihood function.</p>
+<p>One trick is to use the natural logarithm of the likelihood function instead (<span class="math inline">\(log(L(x))\)</span>). A nice property is that the logarithm of a product of values is the sum of the logarithms of those values, that is:</p>
+<p><span class="math display">\[
+\text{log}(L(x)) = \sum_{i=1}^{i=n}\text{log}(f(x_i))
+\]</span></p>
+<p>Also, the values of log-likelihood will always be closer to 1 and the maximum occurs for the same parameter values as for the likelihood. For example, the likelihood of the first sample generated above, as a function of <span class="math inline">\(\mu\)</span> (fixing <span class="math inline">\(\sigma\)</span>) is:</p>
+<p><img src="/post/04_mle_nonlinear_files/figure-html/unnamed-chunk-5-1.png" width="672" /></p>
+<p>whereas for the log-likelihood it becomes:</p>
+<p><img src="/post/04_mle_nonlinear_files/figure-html/unnamed-chunk-6-1.png" width="672" /></p>
+<p>Although the shapes of the curves are different, the maximum occurs for the same value of <span class="math inline">\(\mu\)</span>. Note that there is nothing special about the natural logarithm: we could have taken the logarithm with base 10 or any other base. But it is customary to use the natural logarithm as some important probability density functions are exponential functions (e.g. the Normal distribution, see above), so taking the natural logarithm makes mathematical analyses easier.</p>
+<p>You may have noticed that the optimal value of <span class="math inline">\(\mu\)</span> was not exactly 0, even though the data was generated from a Normal distribution with <span class="math inline">\(\mu\)</span> = 0. This is the reason why it is called a maximum likelihood <em>estimator</em>. The source of such deviation is that the sample is not a perfect representation of the population, precisely because of the randomness in the sampling procedure. A nice property of MLE is that, generally, the estimator will converge asymptotically to the true value in the population (i.e. as sample size grows, the difference between the estimate and the true value decreases).</p>
+<p>The final technical detail you need to know is that, except for trivial models, the MLE method cannot be applied analytically. One option is to try a sequence of values and look for the one that yields maximum log-likelihood (this is known as <em>grid approach</em> as it is what I tried above). However, if there are many parameters to be estimated, this approach will be too inefficient. For example, if we only try 20 values per parameter and we have 5 parameters we will need to test 3.2 million combinations.</p>
+<p>Instead, the MLE method is generally applied using algorithms known as non-linear optimizers. You can feed these algorithms any function that takes numbers as inputs and returns a number as ouput and they will calculate the input values that minimize or maximize the output. It really does not matter how complex or simple the function is, as they will treat it as a <em>black box</em>. By convention, non-linear optimizers will <em>minimize</em> the function and, in some cases, we do not have the option to tell them to maximize it. Therefore, the convention is to minimize the <em>negative log-likelihood</em> (NLL).</p>
+<p>Enough with the theory. Let’s estimate the values of <span class="math inline">\(\mu\)</span> and <span class="math inline">\(\sigma\)</span> from the first sample we generated above. First, we need to create a function to calculate NLL. It is good practice to follow some template for generating these functions. An NLL function should take two inputs: (i) a vector of parameter values that the optimization algorithm wants to test (<code>pars</code>) and (ii) the <code>data</code> for which the NLL is calculated. For the problem of estimating <span class="math inline">\(\mu\)</span> and <span class="math inline">\(\sigma\)</span>, the function looks like this:</p>
+<pre class="r"><code>NLL = function(pars, data) {
+  # Extract parameters from the vector
+  mu = pars[1]
+  sigma = pars[2]
+  # Calculate Negative Log-LIkelihood
+  -sum(dnorm(x = data, mean = mu, sd = sigma, log = TRUE))
+}</code></pre>
+<p>The function <code>dnorm</code> returns the probability density of the data assuming a Normal distribution with given mean and standard deviation (<code>mean</code> and <code>sd</code>). The argument <code>log = TRUE</code> tells R to calculate the logarithm of the probability density. Then we just need to add up all these values (that yields the log-likelihood as shown before) and switch the sign to get the NLL.</p>
+<p>We can now minimize the NLL using the function <code>optim</code>. This function needs the initial values for each parameter (<code>par</code>), the function calculating NLL (<code>fn</code>) and arguments that will be passed to the objective function (in our example, that will be <code>data</code>). We can also tune some settings with the <code>control</code> argument. I recommend to set the setting <code>parscale</code> to the absolute initial values (assuming none of the initial values are 0). This setting determines the scale of the values you expect for each parameter and it helps the algorithm find the right solution. The <code>optim</code> function will return an object that holds all the relevant information and, to extract the optimal values for the parameters, you need to access the field <code>par</code>:</p>
+<pre class="r"><code>mle = optim(par = c(mu = 0.2, sigma = 1.5), fn = NLL, data = sample,
+            control = list(parscale = c(mu = 0.2, sigma = 1.5)))
+mle$par</code></pre>
+<pre><code>##          mu       sigma 
+## -0.07332745  0.90086176</code></pre>
+<p>It turns out that this problem has an analytical solution, such that the MLE values for <span class="math inline">\(\mu\)</span> and <span class="math inline">\(\sigma\)</span> from the Normal distribution can also be calculated directly as:</p>
+<pre class="r"><code>c(mu = mean(sample), sigma = sd(sample))</code></pre>
+<pre><code>##         mu      sigma 
+## -0.0733340  0.9054535</code></pre>
+<p>There is always a bit of numerical error when using <code>optim</code>, but it did find values that were very close to the analytical ones. Take into account that many MLE problems (like the one in the section below) cannot be solved analytically, so in general you will need to use numerical optimization.</p>
+</div>
+<div id="mle-applied-to-a-scientific-model" class="section level1">
+<h1>MLE applied to a scientific model</h1>
+<p>In this case, we have a scientific model describing a particular phenomenon and we want to estimate the parameters of this model from data using the MLE method. As an example, we will use a growth curve typical in plant ecology.</p>
+<p>Let’s imagine that we have made a series of a visits to a crop field during its growing season. At every visit, we record the days since the crop was sown and the fraction of ground area that is covered by the plants. This is known as ground cover (<span class="math inline">\(G\)</span>) and it can vary from 0 (no plants present) to 1 (field completely covered by plants). An example of such data would be the following (data belongs to my colleague <a href="https://www.researchgate.net/profile/Ali_Elhakeem">Ali El-Hakeem</a>):</p>
+<pre class="r"><code>data = data.frame(t = c(0, 16, 22, 29, 36, 58),
+                  G = c(0, 0.12, 0.32, 0.6, 0.79, 1))
+plot(data, las = 1, xlab = &quot;Days after sowing&quot;, ylab = &quot;Ground cover&quot;)</code></pre>
+<p><img src="/post/04_mle_nonlinear_files/figure-html/unnamed-chunk-10-1.png" width="672" /></p>
+<p>Our first intuition would be to use the classic logistic growth function (see <a href="https://en.wikipedia.org/wiki/Logistic_function">here</a>) to describe this data. However, this function does not guarantee that <span class="math inline">\(G\)</span> is 0 at <span class="math inline">\(t = 0\)</span> . Therefore, we will use a modified version of the logistic function that guarantees <span class="math inline">\(G = 0\)</span> at <span class="math inline">\(t = 0\)</span> (I skip the derivation):</p>
+<p><span class="math display">\[
+G = \frac{\Delta G}{1 + e^{k \left(t - t_{h} \right)}} - G_{o}
+\]</span></p>
+<p>where <span class="math inline">\(k\)</span> is a parameter that determines the shape of the curve, <span class="math inline">\(t_{h}\)</span> is the time at which <span class="math inline">\(G\)</span> is equal to half of its maximum value and <span class="math inline">\(\Delta G\)</span> and <span class="math inline">\(G_o\)</span> are parameters that ensure <span class="math inline">\(G = 0\)</span> at <span class="math inline">\(t = 0\)</span> and that <span class="math inline">\(G\)</span> reaches a maximum value of <span class="math inline">\(G_{max}\)</span> asymptotically. The values of <span class="math inline">\(\Delta G\)</span> and <span class="math inline">\(G_o\)</span> can be calculated as:</p>
+<p><span class="math display">\[
+\begin{align}
+G_o &amp;= \frac{\Delta G}{1 + e^{k \cdot t_{h}}} \\
+\Delta G &amp;= \frac{G_{max}}{1 - 1/\left(1 + e^{k \cdot t_h}\right)}
+\end{align}
+\]</span></p>
+<p>Note that the new function still depends on only 3 parameters: <span class="math inline">\(G_{max}\)</span>, <span class="math inline">\(t_h\)</span> and <span class="math inline">\(k\)</span>. The R implementation as a function is straightforward:</p>
+<pre class="r"><code>G = function(pars, t) {
+  # Extract parameters of the model
+  Gmax = pars[1]
+  k = pars[2]
+  th = pars[3]
+  # Prediction of the model
+  DG = Gmax/(1 - 1/(1 + exp(k*th)))
+  Go = DG/(1 + exp(k*th))
+  DG/(1 + exp(-k*(t - th))) - Go
+}</code></pre>
+<p>Note that rather than passing the 3 parameters of the curve as separate arguments I packed them into a vector called <code>pars</code>. This follows the same template as for the NLL function described above.</p>
+<p>Non-linear optimization algorithms always requires some initial values for the parameters being optimized. For simple models such as this one we can just try out different values and plot them on top of the data. For this model, <span class="math inline">\(G_{max}\)</span> is very easy as you can just <em>see it</em> from the data. <span class="math inline">\(t_h\)</span> is a bit more difficult but you can eyeball it by cheking where <span class="math inline">\(G\)</span> is around half of <span class="math inline">\(G_{max}\)</span>. Finally, the <span class="math inline">\(k\)</span> parameter has no intuitive interpretation, so you just need to try a couple of values until the curve looks reasonable. This is what I got after a couple of tries:</p>
+<pre class="r"><code>plot(data, las = 1, xlab = &quot;Days after sowing&quot;, ylab = &quot;Ground cover&quot;)
+curve(G(c(Gmax = 1, k = 0.15, th = 30), x), 0, 60, add = TRUE)</code></pre>
+<p><img src="/post/04_mle_nonlinear_files/figure-html/unnamed-chunk-12-1.png" width="672" /></p>
+<p>If we want to estimate the values of <span class="math inline">\(G_{max}\)</span>, <span class="math inline">\(k\)</span> and <span class="math inline">\(t_h\)</span> according to the MLE method, we need to construct a function in R that calculates NLL given an statistical model and a choice of parameter values. This means that we need to decide on a distribution to represent deviations between the model and the data. The canonical way to do this is to assume a Normal distribution, where <span class="math inline">\(\mu\)</span> is computed by the scientific model of interest, letting <span class="math inline">\(\sigma\)</span> represent the degree of scatter of the data around the mean trend. To keep things simple, I will follow this approach now (but take a look at the final remarks at the end of the article). The NLL function looks similar to the one before, but now the mean is set to the predictions of the model:</p>
+<pre class="r"><code>NLL = function(pars, data) {
+  # Values predicted by the model
+  Gpred = G(pars, data$t)
+  # Negative log-likelihood 
+  -sum(dnorm(x = data$G, mean = Gpred, sd = pars[4], log = TRUE))
+}</code></pre>
+<p>We can now calculate the optimal values using <code>optim</code> and the “eyeballed” initial values (of course, we also need to have an initial estimate for <span class="math inline">\(\sigma\)</span>):</p>
+<pre class="r"><code>par0 = c(Gmax = 1.0, k = 0.15, th = 30, sd = 0.01)
+fit = optim(par = par0, fn = NLL, data = data, control = list(parscale = abs(par0)), 
+            hessian = TRUE)
+fit$par</code></pre>
+<pre><code>##        Gmax           k          th          sd 
+##  0.99926603  0.15879585 26.70700004  0.01482376</code></pre>
+<p>Notice that eyeballing the initial values already got us prettly close to the optimal solution. Of course, for complicated models your initial estimates will not be as good, but it always pays off to play around with the model before going into optimization. Finally, we can compare the predictions of the model with the data:</p>
+<pre class="r"><code>plot(data, las = 1, xlab = &quot;Days after sowing&quot;, ylab = &quot;Ground cover&quot;)
+curve(G(fit$par, x), 0, 60, add = TRUE)</code></pre>
+<p><img src="/post/04_mle_nonlinear_files/figure-html/unnamed-chunk-15-1.png" width="672" /></p>
+</div>
+<div id="final-remarks" class="section level1">
+<h1>Final remarks</h1>
+<p>The model above could have been fitted using the method of <em>ordinary least squares</em> (OLS) with the R function <code>nls</code>. Actually, unless something went wrong in the optimization you should obtain the same results as with the method described here. The reason is that OLS is equivalent to MLE with a Normal distribution and constant standard deviation. However, I believe it is worthwhile to learn MLE because:</p>
+<ul>
+<li><p>You do not have to restrict yourself to the Normal distribution. In some cases (e.g. when modelling count data) it does not make sense to assume a Normal distribution. Actually, in the ground cover model, since the values of <span class="math inline">\(G\)</span> are constrained to be between 0 and 1, it would have been more correct to use another distribution, such as the Beta distribution (however, for this particular data, you will get very similar results so I decided to keep things simple and familiar).</p></li>
+<li><p>You do not have to restrict yourself to modelling the mean of the distribution only. For example, if you have reason to believe that errors do not have a constant variance, you can also model the <span class="math inline">\(\sigma\)</span> parameter of the Normal distribution. That is, you can model any parameter of any distribution.</p></li>
+<li><p>If you undestand MLE then it becomes much easier to understand more advanced methods such as penalized likelihood (aka <em>regularized regression</em>) and Bayesian approaches, as these are also based on the concept of likelihood.</p></li>
+<li><p>You can combine the NLL of multiple datasets inside the NLL function, whereas in ordinary least squares, if you want to combine data from different experiments, you have to correct for different in scales or units of measurement and for differences in the magnitude of errors your model makes for different datasets.</p></li>
+<li><p>Many methods of model selection (so-called <em>information criteria</em> such as AIC) are based on MLE.</p></li>
+<li><p>Using a function to compute NLL allows you to work with any model (as long as you can calculate a probability density) and dataset, but I am not sure this is possible or convenient with the formula interface of <code>nls</code> (e.g combining multiple datasets is not easy when using a formula interface).</p></li>
+</ul>
+<p>Of course, if none of the above applies to your case, you may just use <code>nls</code>. But at least now you understand what is happening behind the scenes. In future posts I discuss some of the special cases I gave in this list. Stay tuned!</p>
+</div>
